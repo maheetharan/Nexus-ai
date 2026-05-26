@@ -1,0 +1,27 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment
+.env
+.env.local
+venv/
+env/
+
+# Memory & personal data (contains your name!)
+nexus_memory.json
+
+# Screenshots saved by Nexus
+screenshot_*.png
+
+# VS Code
+.vscode/
+
+# Ollama model files
+*.gguf
+*.bin
+
+# Logs
+*.log
