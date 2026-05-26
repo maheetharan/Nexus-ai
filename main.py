@@ -11,6 +11,11 @@ import webbrowser
 import datetime
 import requests
 import os, sys, json, time, threading, difflib
+from code_assistant import handle_code_request, is_code_request
+from wake_word        import start_wake_word_listener, is_awake, set_awake
+from tamil_support    import handle_tamil, speak_tamil, needs_tamil_response
+from live_updates     import handle_live_update, is_update_request
+from whatsapp_control import handle_whatsapp, is_whatsapp_request
 
 try:
     from ddgs import DDGS
@@ -125,26 +130,13 @@ for voice in voices:
         engine.setProperty('voice', voice.id)
         break
 
-def speak(text):
+def speak(text, lang="en"):
+    if lang == "ta":
+        speak_tamil(text)
+        return
     print(f"🤖 Nexus: {text}")
-    try:
-        # ✅ gTTS — speaks through system speaker clearly
-        tts = gTTS(text=text, lang='en', slow=False)
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as f:
-            tmp_path = f.name
-        tts.save(tmp_path)
-        pygame.mixer.init()
-        pygame.mixer.music.load(tmp_path)
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
-        pygame.mixer.music.unload()
-        os.unlink(tmp_path)
-    except Exception as e:
-        # 🔄 Fallback to pyttsx3 if gTTS fails
-        print(f"⚠️ gTTS failed ({e}), using pyttsx3...")
-        engine.say(text)
-        engine.runAndWait()
+    engine.say(text)
+    engine.runAndWait()
 
 # ─────────────────────────────────────────
 # 🎙️ VOICE INPUT — Improved Recognition
@@ -514,15 +506,28 @@ def handle_command(user_input):
     ui = user_input.lower().strip()
 
     # ── Exit ──────────────────────────────
-    if any(w in ui for w in ["exit","shutdown","goodbye","bye","turn off","stop nexus","sleep"]):
+    if any(w in ui for w in ["exit","shutdown","goodbye","bye","stop nexus"]):
         name = memory['user_name'] or "friend"
-        speak(f"Goodbye {name}! Take care. Nexus shutting down.")
-        sys.exit(0)
+        speak(f"Goodbye {name}! Take care.")
+        import sys; sys.exit(0)
 
-    # ── Check Training Data FIRST ─────────
-    trained_response = check_training(ui)
-    if trained_response:
-        speak(trained_response)
+    # ── Tamil Support ─────────────────────
+    elif needs_tamil_response(user_input):
+        response, is_ta = handle_tamil(user_input, memory)
+        if is_ta and response:
+            speak_tamil(response)
+            return
+ 
+    # ── Wake word state ───────────────────
+    elif any(w in ui for w in ["nexus sleep","go to sleep"]):
+        set_awake(False)
+        speak("Going to sleep. Say Hey Nexus to wake me!")
+        return
+ 
+    # ── Training data (custom responses) ──
+    trained = check_training(ui)
+    if trained:
+        speak(trained)
         return
 
     # ── Time ──────────────────────────────
@@ -566,7 +571,8 @@ def handle_command(user_input):
             speak(response)
         else:
             speak("What should I search for?")
-
+    elif is_code_request(ui):
+        handle_code_request(user_input, speak)
     # ── Computer Control ──────────────────
     elif control_computer(ui):
         pass
