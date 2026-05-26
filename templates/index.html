@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEXUS AI</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: 'Segoe UI', sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ── */
+  .header {
+    background: #161b22;
+    border-bottom: 1px solid #21262d;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 38px; height: 38px;
+    background: #00f2ff22;
+    border: 2px solid #00f2ff;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 0 0 #00f2ff44; }
+    50%      { box-shadow: 0 0 0 8px #00f2ff00; }
+  }
+  .header h1 { font-size: 20px; color: #00f2ff; letter-spacing: 3px; }
+  .header p  { font-size: 11px; color: #58a6ff; letter-spacing: 1px; }
+  .status {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: #3fb950;
+  }
+  .status-dot {
+    width: 8px; height: 8px;
+    background: #3fb950; border-radius: 50%;
+    animation: blink 1.5s infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ── Chat Area ── */
+  .chat-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    scroll-behavior: smooth;
+  }
+  .chat-area::-webkit-scrollbar { width: 4px; }
+  .chat-area::-webkit-scrollbar-thumb { background: #21262d; border-radius: 2px; }
+
+  /* ── Messages ── */
+  .message { display: flex; gap: 12px; max-width: 80%; animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
+
+  .message.user  { align-self: flex-end; flex-direction: row-reverse; }
+  .message.nexus { align-self: flex-start; }
+
+  .avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; flex-shrink: 0; margin-top: 4px;
+  }
+  .message.nexus .avatar { background: #00f2ff22; border: 1px solid #00f2ff; color: #00f2ff; }
+  .message.user  .avatar { background: #58a6ff22; border: 1px solid #58a6ff; color: #58a6ff; }
+
+  .bubble {
+    padding: 12px 16px;
+    border-radius: 18px;
+    line-height: 1.6;
+    font-size: 14px;
+    position: relative;
+  }
+  .message.nexus .bubble {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-top-left-radius: 4px;
+    color: #c9d1d9;
+  }
+  .message.user .bubble {
+    background: #00f2ff18;
+    border: 1px solid #00f2ff33;
+    border-top-right-radius: 4px;
+    color: #e6edf3;
+  }
+  .bubble .time {
+    font-size: 10px; color: #484f58;
+    margin-top: 6px; text-align: right;
+  }
+
+  /* ── Typing indicator ── */
+  .typing-bubble { display: flex; gap: 5px; align-items: center; padding: 14px 18px; }
+  .typing-dot {
+    width: 7px; height: 7px;
+    background: #00f2ff; border-radius: 50%;
+    animation: bounce 1.2s infinite;
+  }
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes bounce { 0%,60%,100%{transform:none} 30%{transform:translateY(-6px)} }
+
+  /* ── Input Area ── */
+  .input-area {
+    background: #161b22;
+    border-top: 1px solid #21262d;
+    padding: 16px 24px;
+  }
+  .input-row {
+    display: flex; gap: 10px; align-items: flex-end;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 14px;
+    padding: 10px 14px;
+    transition: border-color 0.2s;
+  }
+  .input-row:focus-within { border-color: #00f2ff55; }
+
+  #userInput {
+    flex: 1; background: none; border: none; outline: none;
+    color: #e6edf3; font-size: 14px; resize: none;
+    max-height: 120px; line-height: 1.5;
+    font-family: inherit;
+  }
+  #userInput::placeholder { color: #484f58; }
+
+  .btn {
+    width: 36px; height: 36px; border-radius: 10px; border: none;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    font-size: 16px; transition: all 0.2s; flex-shrink: 0;
+  }
+  #sendBtn {
+    background: #00f2ff;
+    color: #0d1117;
+  }
+  #sendBtn:hover { background: #00c8d4; transform: scale(1.05); }
+  #sendBtn:disabled { background: #21262d; color: #484f58; cursor: not-allowed; transform: none; }
+
+  #voiceBtn {
+    background: #21262d; color: #58a6ff;
+  }
+  #voiceBtn:hover  { background: #30363d; }
+  #voiceBtn.active { background: #58a6ff22; color: #00f2ff; animation: voicePulse 1s infinite; }
+  @keyframes voicePulse { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 0 6px #00f2ff22} }
+
+  #clearBtn { background: #21262d; color: #f85149; }
+  #clearBtn:hover { background: #30363d; }
+
+  .input-hint {
+    font-size: 11px; color: #484f58;
+    text-align: center; margin-top: 8px;
+  }
+
+  /* ── Suggestions ── */
+  .suggestions {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    padding: 12px 24px 0;
+  }
+  .suggestion {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 12px; color: #8b949e;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .suggestion:hover { border-color: #00f2ff55; color: #00f2ff; }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #0d1117; }
+  ::-webkit-scrollbar-thumb { background: #21262d; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <div class="logo">⬡</div>
+    <div>
+      <h1>NEXUS</h1>
+      <p>NEURAL EXECUTIVE UNIT</p>
+    </div>
+  </div>
+  <div class="status">
+    <div class="status-dot"></div>
+    Online
+  </div>
+</div>
+
+<!-- Chat Area -->
+<div class="chat-area" id="chatArea">
+  <div class="message nexus">
+    <div class="avatar">⬡</div>
+    <div class="bubble">
+      Hey! I'm <strong style="color:#00f2ff">Nexus</strong>, your personal AI assistant built by Mahee. 🚀<br>
+      You can type or use the 🎤 mic button to talk to me!
+      <div class="time">Just now</div>
+    </div>
+  </div>
+</div>
+
+<!-- Suggestions -->
+<div class="suggestions" id="suggestions">
+  <div class="suggestion" onclick="sendSuggestion(this)">👋 Who are you?</div>
+  <div class="suggestion" onclick="sendSuggestion(this)">🕐 What time is it?</div>
+  <div class="suggestion" onclick="sendSuggestion(this)">🌦️ Weather in Chennai</div>
+  <div class="suggestion" onclick="sendSuggestion(this)">😄 Tell me a joke</div>
+  <div class="suggestion" onclick="sendSuggestion(this)">🧮 Calculate 25 × 4</div>
+</div>
+
+<!-- Input Area -->
+<div class="input-area">
+  <div class="input-row">
+    <textarea id="userInput" placeholder="Message Nexus..." rows="1"></textarea>
+    <button class="btn" id="voiceBtn" onclick="toggleVoice()" title="Voice Input">🎤</button>
+    <button class="btn" id="clearBtn" onclick="clearChat()" title="Clear Chat">🗑️</button>
+    <button class="btn" id="sendBtn" onclick="sendMessage()" title="Send">➤</button>
+  </div>
+  <div class="input-hint">Press Enter to send • Shift+Enter for new line • 🎤 for voice</div>
+</div>
+
+<script>
+const chatArea   = document.getElementById('chatArea');
+const userInput  = document.getElementById('userInput');
+const sendBtn    = document.getElementById('sendBtn');
+const voiceBtn   = document.getElementById('voiceBtn');
+let   isRecording = false;
+let   recognition  = null;
+
+// ── Auto-resize textarea ──────────────────
+userInput.addEventListener('input', () => {
+  userInput.style.height = 'auto';
+  userInput.style.height = Math.min(userInput.scrollHeight, 120) + 'px';
+});
+
+// ── Enter to send ─────────────────────────
+userInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+// ── Send Message ──────────────────────────
+async function sendMessage(text) {
+  const msg = (text || userInput.value).trim();
+  if (!msg) return;
+
+  addMessage('user', msg);
+  userInput.value = '';
+  userInput.style.height = 'auto';
+  sendBtn.disabled = true;
+
+  // Hide suggestions after first message
+  document.getElementById('suggestions').style.display = 'none';
+
+  // Show typing
+  const typingId = showTyping();
+
+  try {
+    const res  = await fetch('/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: msg})
+    });
+    const data = await res.json();
+
+    removeTyping(typingId);
+    addMessage('nexus', data.response, data.time);
+
+    // 🔊 Speak the response
+    speakText(data.response);
+
+  } catch(e) {
+    removeTyping(typingId);
+    addMessage('nexus', 'Connection error. Is the server running?');
+  }
+
+  sendBtn.disabled = false;
+}
+
+// ── Add Message Bubble ─────────────────────
+function addMessage(sender, text, time) {
+  const now = time || new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'});
+  const isUser = sender === 'user';
+
+  const div = document.createElement('div');
+  div.className = `message ${sender}`;
+  div.innerHTML = `
+    <div class="avatar">${isUser ? '👤' : '⬡'}</div>
+    <div class="bubble">
+      ${escapeHTML(text).replace(/\n/g,'<br>')}
+      <div class="time">${now}</div>
+    </div>`;
+
+  chatArea.appendChild(div);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+// ── Typing Indicator ──────────────────────
+function showTyping() {
+  const id = 'typing-' + Date.now();
+  const div = document.createElement('div');
+  div.className = 'message nexus';
+  div.id = id;
+  div.innerHTML = `
+    <div class="avatar">⬡</div>
+    <div class="bubble typing-bubble">
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+      <div class="typing-dot"></div>
+    </div>`;
+  chatArea.appendChild(div);
+  chatArea.scrollTop = chatArea.scrollHeight;
+  return id;
+}
+function removeTyping(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+// ── 🔊 Text to Speech ─────────────────────
+function speakText(text) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang  = 'en-IN';   // Indian English
+  utt.rate  = 0.95;
+  utt.pitch = 1.0;
+
+  // Pick a good voice if available
+  const voices = window.speechSynthesis.getVoices();
+  const preferred = voices.find(v =>
+    v.name.includes('Male') || v.name.includes('David') ||
+    v.name.includes('Google') || v.lang === 'en-IN'
+  );
+  if (preferred) utt.voice = preferred;
+
+  window.speechSynthesis.speak(utt);
+}
+
+// ── 🎤 Voice Input ────────────────────────
+function toggleVoice() {
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    alert('Voice not supported in this browser. Use Chrome!');
+    return;
+  }
+
+  if (isRecording) {
+    recognition.stop();
+    return;
+  }
+
+  recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+  recognition.lang = 'en-IN';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+
+  recognition.onstart = () => {
+    isRecording = true;
+    voiceBtn.classList.add('active');
+    voiceBtn.textContent = '🔴';
+  };
+
+  recognition.onresult = (e) => {
+    const text = e.results[0][0].transcript;
+    userInput.value = text;
+    sendMessage(text);
+  };
+
+  recognition.onend = () => {
+    isRecording = false;
+    voiceBtn.classList.remove('active');
+    voiceBtn.textContent = '🎤';
+  };
+
+  recognition.onerror = (e) => {
+    isRecording = false;
+    voiceBtn.classList.remove('active');
+    voiceBtn.textContent = '🎤';
+    console.error('Voice error:', e.error);
+  };
+
+  recognition.start();
+}
+
+// ── Clear Chat ────────────────────────────
+async function clearChat() {
+  await fetch('/clear', {method:'POST'});
+  chatArea.innerHTML = '';
+  document.getElementById('suggestions').style.display = 'flex';
+  addMessage('nexus', 'Chat cleared! How can I help you?');
+  window.speechSynthesis && window.speechSynthesis.cancel();
+}
+
+// ── Suggestion Click ──────────────────────
+function sendSuggestion(el) {
+  const text = el.textContent.replace(/^[\p{Emoji}\s]+/u,'').trim();
+  userInput.value = text;
+  sendMessage(text);
+}
+
+// ── Helpers ───────────────────────────────
+function escapeHTML(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Load voices on start
+window.speechSynthesis && window.speechSynthesis.getVoices();
+</script>
+</body>
+</html>
