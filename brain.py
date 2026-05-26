@@ -1,16 +1,29 @@
-#brain.py
-from groq import Groq
+# brain.py - Nexus AI Brain (Uses Ollama - No API Key Needed!)
 import requests
+import os
+import json
 
 # ─────────────────────────────────────────
 # ⚙️ SETTINGS
 # ─────────────────────────────────────────
-GROQ_API_KEY = "Your_Groq_API_Key_Here"
-OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "mistral"
+OLLAMA_URL   = "http://localhost:11434/api/generate"
+MODEL = "qwen2.5:7b"     # ✅ Your local model (no API key!)
+MEMORY_FILE  = "nexus_memory.json"
 
-client = Groq(api_key=GROQ_API_KEY)
-conversation_history = []
+# ─────────────────────────────────────────
+# 💾 MEMORY (Remembers your name)
+# ─────────────────────────────────────────
+def load_memory():
+    if os.path.exists(MEMORY_FILE):
+        with open(MEMORY_FILE, "r") as f:
+            return json.load(f)
+    return {"user_name": None, "facts": []}
+
+def save_memory(mem):
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(mem, f, indent=2)
+
+memory = load_memory()
 
 # ─────────────────────────────────────────
 # 🌐 CHECK INTERNET
@@ -23,78 +36,89 @@ def is_internet_available():
         return False
 
 # ─────────────────────────────────────────
-# 🤖 LOCAL AI (Ollama - Offline)
+# 🧠 CONVERSATION HISTORY
 # ─────────────────────────────────────────
-def ask_local_ai(user_input, memory=None):
-    try:
-        name_context = f"The user's name is {memory['user_name']}." if memory and memory.get('user_name') else ""
-        
-        # Build conversation context from history
-        history_text = ""
-        for msg in conversation_history[-6:]:  # Last 3 exchanges
-            role = "User" if msg["role"] == "user" else "Nexus"
-            history_text += f"{role}: {msg['content']}\n"
+conversation_history = []
 
-        prompt = f"""You are Nexus, a friendly, smart AI assistant.
-Keep replies under 2 short sentences. Be casual and natural.
-{name_context}
+# ─────────────────────────────────────────
+# 🤖 ASK NEXUS (Uses your local Ollama)
+# ─────────────────────────────────────────
+def ask_nexus(user_input):
+    # Add user message to history
+    conversation_history.append({"role": "user", "content": user_input})
+
+    # Personal context
+    name_ctx = f"The user's name is {memory['user_name']}." if memory['user_name'] else ""
+
+    # Build conversation history as text
+    history_text = ""
+    for msg in conversation_history[-6:]:   # Last 3 exchanges
+        role = "User" if msg["role"] == "user" else "Nexus"
+        history_text += f"{role}: {msg['content']}\n"
+
+    # Build the prompt
+    prompt = f"""You are Nexus, a smart, witty, and friendly AI assistant — like a best friend who is very intelligent.
+Keep ALL replies under 2-3 short sentences since they will be spoken out loud.
+Be casual and natural. Never sound robotic.
+{name_ctx}
 
 {history_text}User: {user_input}
 Nexus:"""
 
-        response = requests.post(OLLAMA_URL, json={
-            "model": OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False
-        }, timeout=30)
+    # ── Try Ollama (Local - No internet needed) ──
+    try:
+        response = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": MODEL,
+                "prompt": prompt,
+                "stream": False
+            },
+            timeout=30
+        )
+        reply = response.json()["response"].strip()
+        print(f"💻 Using Local AI ({MODEL})")
 
-        return response.json()["response"].strip()
     except Exception as e:
-        return f"Local AI error: {str(e)}"
+        # ── Fallback to Groq if Ollama fails ──
+        print(f"⚠️ Ollama failed: {e}")
+        print("🌐 Falling back to Groq API...")
+        reply = ask_groq_fallback(user_input)
 
-# ─────────────────────────────────────────
-# ☁️ GROQ AI (Online)
-# ─────────────────────────────────────────
-def ask_groq_ai(user_input, memory=None):
-    name_context = f"The user's name is {memory['user_name']}." if memory and memory.get('user_name') else ""
-
-    system_prompt = f"""You are Nexus, a futuristic Jarvis-style AI assistant.
-Keep responses short and intelligent.
-{name_context}"""
-
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[
-            {"role": "system", "content": system_prompt}
-        ] + conversation_history,
-        max_tokens=150
-    )
-
-    return response.choices[0].message.content.strip()
-
-# ─────────────────────────────────────────
-# 🧠 MAIN ASK FUNCTION (Auto Switch)
-# ─────────────────────────────────────────
-def ask_nexus(user_input, memory=None):
-    conversation_history.append({"role": "user", "content": user_input})
-
-    if is_internet_available():
-        print("🌐 Using Groq AI (Online)")
-        try:
-            reply = ask_groq_ai(user_input, memory)
-        except Exception as e:
-            print(f"⚠️ Groq failed: {e}. Switching to local AI...")
-            reply = ask_local_ai(user_input, memory)
-    else:
-        print("📴 No internet. Using Local Mistral AI (Offline)")
-        reply = ask_local_ai(user_input, memory)
-
+    # Save to history
     conversation_history.append({"role": "assistant", "content": reply})
 
-    # Learn name
-    if memory and memory.get("user_name") is None:
-        if "my name is" in user_input:
-            name = user_input.split("my name is")[-1].strip().split()[0]
-            memory["user_name"] = name.capitalize()
+    # ── Learn user's name automatically ──
+    if memory["user_name"] is None:
+        for phrase in ["my name is ", "i am ", "call me ", "i'm "]:
+            if phrase in user_input.lower():
+                after = user_input.lower().split(phrase)[-1].strip()
+                name  = after.split()[0].replace(",", "").replace(".", "").capitalize()
+                if len(name) >= 2:
+                    memory["user_name"] = name
+                    save_memory(memory)
+                    break
 
     return reply
+
+# ─────────────────────────────────────────
+# 🔄 GROQ FALLBACK (Only if Ollama fails)
+# ─────────────────────────────────────────
+GROQ_API_KEY = "your-groq-api-key-here"   # Optional backup
+
+def ask_groq_fallback(user_input):
+    try:
+        from groq import Groq
+        client = Groq(api_key=GROQ_API_KEY)
+        name_ctx = f"The user's name is {memory['user_name']}." if memory['user_name'] else ""
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": f"You are Nexus, a smart friendly AI assistant. Keep replies short (2-3 sentences). Be casual. {name_ctx}"},
+            ] + conversation_history,
+            max_tokens=150
+        )
+        return response.choices[0].message.content.strip()
+    except:
+        return "Sorry, I'm having trouble thinking right now. Please make sure Ollama is running!"

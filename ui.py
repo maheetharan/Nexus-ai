@@ -1,202 +1,161 @@
-# ui.py - Uses built-in tkinter only (no customtkinter needed)
-import tkinter as tk
-from tkinter import scrolledtext
-import threading
-from brain import ask_nexus
+# web_app.py - Nexus Web Server
+# Run: python web_app.py
+# Open: http://localhost:5000
 
-class NexusUI:
+from flask import Flask, render_template, request, jsonify, Response
+import requests
+import os, json, datetime
 
-    def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("NEXUS - Jarvis AI")
-        self.root.geometry("900x680")
-        self.root.configure(bg="#0d1117")
-        self.root.resizable(False, False)
+app = Flask(__name__)
 
-        self.pulse_radius = 80
-        self.pulse_direction = 1
+# ─────────────────────────────────────────
+# ⚙️ SETTINGS
+# ─────────────────────────────────────────
+OLLAMA_URL    = "http://localhost:11434/api/generate"
+MODEL         = "llama3.2"
+GROQ_API_KEY  = "your-groq-api-key"   # backup only
+MEMORY_FILE   = "nexus_memory.json"
+TRAINING_FILE = "nexus_training.json"
 
-        self.build_ui()
-        self.animate_core()
+# ─────────────────────────────────────────
+# 💾 MEMORY
+# ─────────────────────────────────────────
+def load_memory():
+    if os.path.exists(MEMORY_FILE):
+        with open(MEMORY_FILE, "r") as f:
+            return json.load(f)
+    return {"user_name": None, "facts": []}
 
-    def build_ui(self):
+def save_memory(mem):
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(mem, f, indent=2)
 
-        # ── Title ──────────────────────────────
-        title = tk.Label(
-            self.root,
-            text="⬡  N E X U S",
-            font=("Consolas", 28, "bold"),
-            fg="#00f2ff",
-            bg="#0d1117"
+memory = load_memory()
+
+# ─────────────────────────────────────────
+# 🎓 TRAINING DATA
+# ─────────────────────────────────────────
+def load_training():
+    if os.path.exists(TRAINING_FILE):
+        with open(TRAINING_FILE, "r") as f:
+            return json.load(f)
+    return []
+
+import difflib
+def check_training(user_input):
+    training = load_training()
+    ui = user_input.lower().strip()
+    for item in training:
+        if item["trigger"].lower() in ui:
+            return item["response"]
+    triggers = [item["trigger"].lower() for item in training]
+    close = difflib.get_close_matches(ui, triggers, n=1, cutoff=0.6)
+    if close:
+        for item in training:
+            if item["trigger"].lower() == close[0]:
+                return item["response"]
+    return None
+
+# ─────────────────────────────────────────
+# 🧠 AI BRAIN
+# ─────────────────────────────────────────
+conversation_history = []
+
+def ask_nexus(user_input):
+    # Check training first
+    trained = check_training(user_input)
+    if trained:
+        return trained
+
+    conversation_history.append({"role": "user", "content": user_input})
+    if len(conversation_history) > 20:
+        del conversation_history[:-20]
+
+    name_ctx = f"The user's name is {memory['user_name']}." if memory['user_name'] else ""
+    history_text = ""
+    for msg in conversation_history[-6:]:
+        role = "User" if msg["role"] == "user" else "Nexus"
+        history_text += f"{role}: {msg['content']}\n"
+
+    prompt = f"""You are Nexus, a highly intelligent, witty, and friendly AI assistant built by Mahee.
+Be warm, funny, and engaging. Keep responses 2-4 sentences max.
+{name_ctx}
+
+{history_text}User: {user_input}
+Nexus:"""
+
+    try:
+        response = requests.post(
+            OLLAMA_URL,
+            json={"model": MODEL, "prompt": prompt, "stream": False},
+            timeout=30
         )
-        title.pack(pady=(20, 0))
+        reply = response.json()["response"].strip()
+    except:
+        reply = ask_groq(user_input)
 
-        subtitle = tk.Label(
-            self.root,
-            text="NEURAL EXECUTIVE UNIT",
-            font=("Consolas", 9),
-            fg="#005f6b",
-            bg="#0d1117",
-            letter_spacing=4
+    conversation_history.append({"role": "assistant", "content": reply})
+
+    # Learn name
+    if memory['user_name'] is None:
+        for phrase in ["my name is ","i am ","call me ","i'm "]:
+            if phrase in user_input.lower():
+                after = user_input.lower().split(phrase)[-1].strip()
+                parts = after.split()
+                if parts:
+                    name = parts[0].replace(",","").replace(".","").capitalize()
+                    if len(name) >= 2:
+                        memory['user_name'] = name
+                        save_memory(memory)
+                break
+
+    return reply
+
+def ask_groq(user_input):
+    try:
+        from groq import Groq
+        client = Groq(api_key=GROQ_API_KEY)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role":"system","content":"You are Nexus, a smart friendly AI. Keep replies short."}] + conversation_history,
+            max_tokens=150
         )
-        subtitle.pack()
+        return response.choices[0].message.content.strip()
+    except:
+        return "Sorry, I'm having trouble connecting. Please make sure Ollama is running!"
 
-        # ── Animated Canvas ────────────────────
-        self.canvas = tk.Canvas(
-            self.root,
-            width=220,
-            height=220,
-            bg="#0d1117",
-            highlightthickness=0
-        )
-        self.canvas.pack(pady=(5, 0))
+# ─────────────────────────────────────────
+# 🌐 ROUTES
+# ─────────────────────────────────────────
+@app.route("/")
+def index():
+    return render_template("index.html",
+                           user_name=memory.get("user_name", ""))
 
-        # ── Status ─────────────────────────────
-        self.status_label = tk.Label(
-            self.root,
-            text="● IDLE",
-            font=("Consolas", 11),
-            fg="#00f2ff",
-            bg="#0d1117"
-        )
-        self.status_label.pack(pady=(0, 5))
+@app.route("/chat", methods=["POST"])
+def chat():
+    data       = request.json
+    user_input = data.get("message", "").strip()
+    if not user_input:
+        return jsonify({"response": "Say something!"})
+    reply = ask_nexus(user_input)
+    return jsonify({
+        "response": reply,
+        "user_name": memory.get("user_name", ""),
+        "time": datetime.datetime.now().strftime("%I:%M %p")
+    })
 
-        # ── Chat Box ───────────────────────────
-        chat_frame = tk.Frame(self.root, bg="#0d1117")
-        chat_frame.pack(padx=30, pady=5, fill="both")
+@app.route("/clear", methods=["POST"])
+def clear():
+    global conversation_history
+    conversation_history = []
+    return jsonify({"status": "cleared"})
 
-        self.chat_box = scrolledtext.ScrolledText(
-            chat_frame,
-            width=90,
-            height=10,
-            bg="#161b22",
-            fg="#c9d1d9",
-            font=("Consolas", 10),
-            relief="flat",
-            bd=0,
-            wrap="word",
-            state="disabled"
-        )
-        self.chat_box.pack(fill="both")
-        self.chat_box.configure(insertbackground="#00f2ff")
+@app.route("/memory", methods=["GET"])
+def get_memory():
+    return jsonify(memory)
 
-        # Color tags
-        self.chat_box.tag_config("nexus",  foreground="#00f2ff", font=("Consolas", 10, "bold"))
-        self.chat_box.tag_config("user",   foreground="#58a6ff", font=("Consolas", 10, "bold"))
-        self.chat_box.tag_config("system", foreground="#3a3f47", font=("Consolas", 9, "italic"))
-        self.chat_box.tag_config("msg",    foreground="#c9d1d9", font=("Consolas", 10))
-
-        self.add_message("Nexus", "Systems online. How can I help you today?", "nexus")
-
-        # ── Input Row ──────────────────────────
-        input_frame = tk.Frame(self.root, bg="#0d1117")
-        input_frame.pack(padx=30, pady=10, fill="x")
-
-        self.user_input = tk.Entry(
-            input_frame,
-            bg="#161b22",
-            fg="#c9d1d9",
-            insertbackground="#00f2ff",
-            font=("Consolas", 12),
-            relief="flat",
-            bd=8
-        )
-        self.user_input.pack(side="left", fill="x", expand=True, ipady=8)
-        self.user_input.bind("<Return>", lambda e: self.handle_send())
-
-        send_btn = tk.Button(
-            input_frame,
-            text="  SEND  ",
-            bg="#00f2ff",
-            fg="#0d1117",
-            font=("Consolas", 11, "bold"),
-            relief="flat",
-            cursor="hand2",
-            activebackground="#00c8d4",
-            activeforeground="#0d1117",
-            command=self.handle_send
-        )
-        send_btn.pack(side="left", padx=(8, 0), ipady=8)
-
-        # ── Footer ─────────────────────────────
-        footer = tk.Label(
-            self.root,
-            text="NEXUS AI  •  Voice + Text  •  Powered by Groq",
-            font=("Consolas", 8),
-            fg="#21262d",
-            bg="#0d1117"
-        )
-        footer.pack(pady=(0, 8))
-
-    # ── Pulsing Circle Animation ───────────────
-    def animate_core(self):
-        self.canvas.delete("all")
-        cx, cy = 110, 110
-
-        # Outer glow rings
-        for i in range(3):
-            r = self.pulse_radius + i * 14
-            alpha_color = ["#003a40", "#004d55", "#006070"][i]
-            self.canvas.create_oval(
-                cx - r, cy - r, cx + r, cy + r,
-                outline=alpha_color, width=1
-            )
-
-        # Main ring
-        r = self.pulse_radius
-        self.canvas.create_oval(
-            cx - r, cy - r, cx + r, cy + r,
-            outline="#00f2ff", width=2
-        )
-
-        # Inner core
-        self.canvas.create_oval(
-            cx - 18, cy - 18, cx + 18, cy + 18,
-            fill="#003a40", outline="#00f2ff", width=2
-        )
-
-        # Center dot
-        self.canvas.create_oval(
-            cx - 5, cy - 5, cx + 5, cy + 5,
-            fill="#00f2ff", outline=""
-        )
-
-        # Cross lines
-        self.canvas.create_line(cx - r, cy, cx + r, cy, fill="#003a40", width=1)
-        self.canvas.create_line(cx, cy - r, cx, cy + r, fill="#003a40", width=1)
-
-        self.pulse_radius += self.pulse_direction * 1.5
-        if self.pulse_radius >= 95 or self.pulse_radius <= 70:
-            self.pulse_direction *= -1
-
-        self.root.after(35, self.animate_core)
-
-    # ── Handle Send ───────────────────────────
-    def handle_send(self):
-        message = self.user_input.get().strip()
-        if not message:
-            return
-
-        self.add_message("You", message, "user")
-        self.user_input.delete(0, "end")
-        threading.Thread(target=self.get_ai_response, args=(message,), daemon=True).start()
-
-    def get_ai_response(self, message):
-        self.update_status("● THINKING...", "#f0c040")
-        reply = ask_nexus(message)
-        self.add_message("Nexus", reply, "nexus")
-        self.update_status("● IDLE", "#00f2ff")
-
-    # ── Helpers ───────────────────────────────
-    def update_status(self, text, color="#00f2ff"):
-        self.status_label.configure(text=text, fg=color)
-
-    def add_message(self, sender, message, tag="msg"):
-        self.chat_box.configure(state="normal")
-        self.chat_box.insert("end", f"\n{sender}:  ", tag)
-        self.chat_box.insert("end", f"{message}\n", "msg")
-        self.chat_box.configure(state="disabled")
-        self.chat_box.see("end")
-
-    def run(self):
-        self.root.mainloop()
+if __name__ == "__main__":
+    print("🚀 Nexus Web App starting...")
+    print("🌐 Open: http://localhost:5000")
+    app.run(debug=True, host="0.0.0.0", port=5000)
